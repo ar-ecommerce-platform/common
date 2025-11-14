@@ -1,57 +1,76 @@
 package com.ecommerce.common.auth;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+
 import javax.crypto.SecretKey;
 import java.util.Date;
 
 public class JwtUtils {
 
-    /**
-     * Create a new JWT with the user’s unique identifier.
-     */
-    public String generateToken(String subject) {
-        return "";
+    private final SecretKey jwtSigningKey;
+    private final long expirationMs;
+
+    public JwtUtils(SecretKey jwtSigningKey, long expirationMs) {
+        this.jwtSigningKey = jwtSigningKey;
+        this.expirationMs = expirationMs;
     }
 
     /**
-     * Get the user’s identity (subject) from the token.
+     * Create a new JWT Token with the user’s unique identifier.
+     *
+     * @param subject The user's email
+     * @return The signed JWT token
      */
+    public String generateToken(String subject) {
+        return Jwts.builder()
+                .subject(subject)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expirationMs))
+                .signWith(jwtSigningKey)
+                .compact();
+    }
+
+    /**
+     *  Get the user identity (subject) from a token.
+     *
+     * @param token The JWT Token
+     * @return The subject stored in the token
+     * */
     public String extractSubject(String token) {
-        return "";
+        return parseClaims(token).getSubject();
     }
 
     /**
      * Retrieve expiration date from token claims.
      */
     public Date extractExpiration(String token) {
-        return null;
+        return parseClaims(token).getExpiration();
     }
 
     /**
      * Ensure the token matches the user and isn’t expired.
      */
     public boolean isTokenValid(String token, String subject) {
-        return false;
+        String extracted = extractSubject(token);
+        return (extracted.equals(subject) && !isExpired(token));
     }
 
     /**
      * Decode the JWT into readable claims.
      */
     public Claims parseClaims(String token) {
-        return null;
-    }
-
-    /**
-     * Load the secret key used for signing and verifying tokens.
-     */
-    public SecretKey getSigningKey() {
-        return null;
+        return Jwts.parser()
+                .verifyWith(jwtSigningKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     /**
      * Quickly check if token time has passed.
      */
     public boolean isExpired(String token) {
-        return false;
+        return extractExpiration(token).before(new Date());
     }
 }
