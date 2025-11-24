@@ -1,6 +1,7 @@
 package com.ecommerce.common.auth;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 
 import javax.crypto.SecretKey;
@@ -60,11 +61,17 @@ public class JwtUtils {
      * @return The token's claims.
      */
     public Claims parseClaims(String token) {
-        return Jwts.parser()
-                .verifyWith(jwtSigningKey)
-                .build()
-                .parseSignedClaims(cleanToken(token))
-                .getPayload();
+        try {
+            return Jwts.parser()
+                    .verifyWith(jwtSigningKey)
+                    .build()
+                    .parseSignedClaims(cleanToken(token))
+                    .getPayload();
+        } catch (JwtException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**
@@ -74,7 +81,8 @@ public class JwtUtils {
      * @return The subject stored inside the token.
      */
     public String extractSubject(String token) {
-        return parseClaims(token).getSubject();
+        Claims claims = parseClaims(token);
+        return (claims != null) ? claims.getSubject() : null;
     }
 
     /**
@@ -84,7 +92,8 @@ public class JwtUtils {
      * @return The expiration date.
      */
     public Date extractExpiration(String token) {
-        return parseClaims(token).getExpiration();
+        Claims claims = parseClaims(token);
+        return (claims != null) ? claims.getExpiration() : null;
     }
 
     /**
@@ -94,19 +103,23 @@ public class JwtUtils {
      * @return true if expired, false if still valid.
      */
     public boolean isExpired(String token) {
-        return extractExpiration(token).before(new Date());
+        Date expiration = extractExpiration(token);
+        return expiration == null || expiration.before(new Date());
     }
 
     /**
      * Checks if the token belongs to the correct user and isn’t expired.
      *
      * @param token The JWT string.
-     * @param subject The subject you expect.
+     * @param expectedSubject The subject you expect.
      * @return true if the token is valid, false otherwise.
      */
-    public boolean isTokenValid(String token, String subject) {
-        String extracted = extractSubject(token);
-        return extracted.equals(subject) && !isExpired(token);
+    public boolean isTokenValid(String token, String expectedSubject) {
+        Claims claims = parseClaims(token);
+        if (claims == null) {
+            return false;
+        }
+        return expectedSubject.equals(claims.getSubject()) && claims.getExpiration().after(new Date());
     }
 
     /**
@@ -118,10 +131,20 @@ public class JwtUtils {
 
     @SuppressWarnings("unchecked")
     public List<String> extractRoles(String token) {
-        Object roles = parseClaims(token).get("roles");
+        Claims claims = parseClaims(token);
+        if (claims == null) {
+            return List.of();
+        }
 
-        if (roles instanceof List<?> list) {
-            return (List<String>) list;
+        Object rolesObj = claims.get("roles");
+        if (rolesObj == null) {
+            return List.of();
+        }
+
+        // Case 1: already List<String>
+        if (rolesObj instanceof List<?> list) {
+            // convert each element to string just in case
+            return list.stream().map(String::valueOf).toList();
         }
 
         return List.of();
