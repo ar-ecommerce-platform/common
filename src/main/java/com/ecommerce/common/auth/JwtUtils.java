@@ -10,6 +10,7 @@ import java.util.List;
 
 public class JwtUtils {
 
+    private static final String CLAIM_ROLES = "roles";
     private final SecretKey jwtSigningKey;
     private final long expirationMs;
 
@@ -34,10 +35,10 @@ public class JwtUtils {
     public String generateToken(String subject, List<String> roles) {
         return Jwts.builder()
                 .subject(subject)
-                .claim("roles", roles)
+                .claim(CLAIM_ROLES, roles)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMs))
-                .signWith(jwtSigningKey)
+                .signWith(jwtSigningKey, Jwts.SIG.HS256)
                 .compact();
     }
 
@@ -48,6 +49,9 @@ public class JwtUtils {
      * @return The token without the "Bearer " prefix.
      */
     private String cleanToken(String token) {
+        if (token == null){
+            return null;
+        }
         if (token.startsWith("Bearer ")) {
             return token.substring(7);
         }
@@ -61,103 +65,89 @@ public class JwtUtils {
      * @return The token's claims.
      */
     public Claims parseClaims(String token) {
-        try {
-            return Jwts.parser()
-                    .verifyWith(jwtSigningKey)
-                    .build()
-                    .parseSignedClaims(cleanToken(token))
-                    .getPayload();
-        } catch (JwtException e) {
-            throw new RuntimeException(e);
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException(e);
+        token = cleanToken(token);
+        if (token == null || token.isBlank()) {
+            throw new JwtException("Token is null or empty");
         }
+        return Jwts.parser()
+                .verifyWith(jwtSigningKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     /**
-     * Gets the subject (user ID/email) from the token.
+     * Extracts the subject (usually the user's email or ID) from the claims.
      *
-     * @param token The JWT string.
-     * @return The subject stored inside the token.
+     * @param claims the already-parsed JWT claims
+     * @return the subject stored in the token (never null if token is valid)
      */
-    public String extractSubject(String token) {
-        Claims claims = parseClaims(token);
-        return (claims != null) ? claims.getSubject() : null;
+    public String extractSubject(Claims claims) {
+        return claims.getSubject();
     }
 
     /**
-     * Gets the expiration date from the token.
+     * Extracts the expiration date from the claims.
      *
-     * @param token The JWT string.
-     * @return The expiration date.
+     * @param claims the already-parsed JWT claims
+     * @return the expiration date of the token
      */
-    public Date extractExpiration(String token) {
-        Claims claims = parseClaims(token);
-        return (claims != null) ? claims.getExpiration() : null;
+    public Date extractExpiration(Claims claims) {
+        return claims.getExpiration();
     }
 
     /**
-     * Checks if the token is expired.
+     * Determines whether a token is expired.
      *
-     * @param token The JWT string.
-     * @return true if expired, false if still valid.
+     * @param claims the already-parsed JWT claims
+     * @return true if the current time is after the expiration time
      */
-    public boolean isExpired(String token) {
-        Date expiration = extractExpiration(token);
-        return expiration == null || expiration.before(new Date());
+    public boolean isExpired(Claims claims) {
+        return claims.getExpiration().before(new Date());
     }
 
     /**
-     * Checks if the token belongs to the correct user and isn’t expired.
+     *  Validates a token by its claims, ensuring:
+     *      Subject matches the expected user
+     *      Token is not expired
      *
-     * @param token The JWT string.
+     * @param claims the already-parsed JWT claims
      * @param expectedSubject The subject you expect.
      * @return true if the token is valid, false otherwise.
      */
-    public boolean isTokenValid(String token, String expectedSubject) {
-        Claims claims = parseClaims(token);
-        if (claims == null) {
-            return false;
-        }
-        return expectedSubject.equals(claims.getSubject()) && claims.getExpiration().after(new Date());
+    public boolean isTokenValid(Claims claims, String expectedSubject) {
+        return expectedSubject.equals(claims.getSubject())
+                && claims.getExpiration().after(new Date());
     }
 
     /**
-     * Extracts the list of roles stored inside the token.
+     * Extracts the list of roles stored inside the JWT claims.
      *
-     * @param token The JWT string.
+     * @param claims Already parsed JWT claims
      * @return A list of roles. Returns an empty list if none are found.
      */
 
     @SuppressWarnings("unchecked")
-    public List<String> extractRoles(String token) {
-        Claims claims = parseClaims(token);
-        if (claims == null) {
-            return List.of();
-        }
-
-        Object rolesObj = claims.get("roles");
-        if (rolesObj == null) {
-            return List.of();
-        }
-
-        // Case 1: already List<String>
+    public List<String> extractRoles(Claims claims) {
+        Object rolesObj = claims.get(CLAIM_ROLES);
         if (rolesObj instanceof List<?> list) {
-            // convert each element to string just in case
             return list.stream().map(String::valueOf).toList();
         }
-
         return List.of();
     }
 
     /**
-     * Checks if the token has a specific role.
+     * Checks if the JWT claims has a specific role.
      *
-     * @param token The JWT string.
+     * @param claims Already parsed JWT claims
      * @param role  The role you want to verify.
      * @return true if the user has the role, false otherwise.
      */
-    public boolean hasRole(String token, String role) {
-        return extractRoles(token).contains(role);
+    public boolean hasRole(Claims claims, String role) {
+        Object rolesObj = claims.get(CLAIM_ROLES);
+        if (rolesObj instanceof List<?> list) {
+            return list.stream().anyMatch(r -> r.toString().equals(role));
+        }
+        return false;
     }
 }
