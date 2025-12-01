@@ -5,14 +5,18 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 
 import javax.crypto.SecretKey;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
 public class JwtUtils {
 
     private static final String CLAIM_ROLES = "roles";
+
     private final SecretKey jwtSigningKey;
     private final long expirationMs;
+    private final Clock clock;
 
     /**
      * Basic constructor for JwtUtils.
@@ -20,9 +24,10 @@ public class JwtUtils {
      * @param jwtSigningKey The secret key used to sign and verify tokens.
      * @param expirationMs How long the token should be valid for (in ms).
      */
-    public JwtUtils(SecretKey jwtSigningKey, long expirationMs) {
+    public JwtUtils(SecretKey jwtSigningKey, long expirationMs, Clock clock) {
         this.jwtSigningKey = jwtSigningKey;
         this.expirationMs = expirationMs;
+        this.clock = clock;
     }
 
     /**
@@ -33,11 +38,13 @@ public class JwtUtils {
      * @return A signed JWT token as a string.
      */
     public String generateToken(String subject, List<String> roles) {
+        Instant now = clock.instant();
+
         return Jwts.builder()
                 .subject(subject)
                 .claim(CLAIM_ROLES, roles)
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expirationMs))
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusMillis(expirationMs)))
                 .signWith(jwtSigningKey, Jwts.SIG.HS256)
                 .compact();
     }
@@ -103,7 +110,7 @@ public class JwtUtils {
      * @return true if the current time is after the expiration time
      */
     public boolean isExpired(Claims claims) {
-        return claims.getExpiration().before(new Date());
+        return claims.getExpiration().before(Date.from(clock.instant()));
     }
 
     /**
@@ -116,8 +123,9 @@ public class JwtUtils {
      * @return true if the token is valid, false otherwise.
      */
     public boolean isTokenValid(Claims claims, String expectedSubject) {
+        Instant now = clock.instant();
         return expectedSubject.equals(claims.getSubject())
-                && claims.getExpiration().after(new Date());
+                && claims.getExpiration().after(Date.from(now));
     }
 
     /**
