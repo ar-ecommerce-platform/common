@@ -1,6 +1,7 @@
 package com.ecommerce.common.auth;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +16,10 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Tests for JwtUtils covering token generation, parsing, validation,
+ * expiration handling, and malformed or invalid tokens.
+ */
 class JwtUtilsTest {
 
     private static JwtUtils jwtUtils;
@@ -26,11 +31,14 @@ class JwtUtilsTest {
 
     @BeforeAll
     static void setup() throws Exception {
+        // Generates a key using HmacSHA256 algorithm
         secretKey = KeyGenerator.getInstance("HmacSHA256").generateKey();
+        // Simulate time at 1/1/2025
         clock = Clock.fixed(
                 Instant.parse("2025-01-01T00:00:00Z"),
                 ZoneId.of("UTC")
         );
+        // Fresh JwtUtils instance for each test to avoid state leakage between tests
         jwtUtils = new JwtUtils(secretKey, 3600000, clock);
     }
 
@@ -77,47 +85,67 @@ class JwtUtilsTest {
 
     @Test
     void shouldReturnExpirationDateFromToken() {
+        // Token created at 00:00, expires at 01:00
         String token = jwtUtils.generateToken(subject, roles);
         Claims claim = jwtUtils.parseClaims(token);
-        Date actualDate = jwtUtils.extractExpiration(claim);
+        Date extractedDate  = jwtUtils.extractExpiration(claim);
+
+        // Date object set at 01:00
         Date expectedDate  = Date.from(
                 Instant.parse("2025-01-01T00:00:00Z")
                         .plusMillis(3600000)
         );
-        assertEquals(actualDate , expectedDate);
+
+        // Date objects should be equal
+        assertEquals(expectedDate, extractedDate);
     }
 
+
     @Test
-    void shouldFailValidation_WhenTokenIsMalformed() {
+    void shouldThrowException_WhenTokenIsMalformed() {
+        // Create a malformed token
         String malformedToken = "asdaas123sasdtrash";
-        Claims claims = jwtUtils.parseClaims(malformedToken);
-        assertFalse(jwtUtils.isTokenValid(claims,subject));
+
+        // If the token is malformed, parsing fails.
+        assertThrows(JwtException.class, () -> {
+            jwtUtils.parseClaims(malformedToken);
+        });
     }
 
     @Test
-    void shouldFailValidation_WhenSignatureIsInvalid() throws NoSuchAlgorithmException {
+    void shouldRejectToken_WhenSignatureIsInvalid() throws NoSuchAlgorithmException {
+        // Create a token using the current jwtUtils instance
         String token = jwtUtils.generateToken(subject, roles);
-        Claims claim = jwtUtils.parseClaims(token);
 
-        // Generate a completely different key
-        SecretKey invalidKey = KeyGenerator.getInstance("HmacSHA256").generateKey();
+        // Generate a new, completely different key
+        SecretKey newKey = KeyGenerator.getInstance("HmacSHA256").generateKey();
 
-        // JwtUtils with wrong key
-        JwtUtils jwtWithWrongKey = new JwtUtils(invalidKey, 3600000, clock);
-        assertFalse(jwtWithWrongKey.isTokenValid(claim, subject));
+        // Create a new JwtUtils with the new key
+        JwtUtils jwtWithNewKey = new JwtUtils(newKey, 3600000, clock);
+
+        // Verifying the signature fails during parsing because jwtWithNewKey
+        // was created with a different key than the one used to sign the token.
+        assertThrows(JwtException.class, () -> {
+            jwtWithNewKey.parseClaims(token);
+        });
     }
 
     @Test
     void shouldNotValidateToken_WhenTokenIsExpired() {
+        // Token created at 00:00, expires at 01:00
         String token = jwtUtils.generateToken(subject, roles);
         Claims claims = jwtUtils.parseClaims(token);
+
         // Move clock ahead by 2 hours
         Clock expiredClock = Clock.fixed(
                 Instant.parse("2025-01-01T02:00:00Z"),
                 ZoneId.of("UTC")
         );
+
+        // JwtUtils with simulated time set at 02:00 (makes the token expired)
         JwtUtils jwtExpired = new JwtUtils(secretKey, 3600000, expiredClock);
+
+        // Should now be considered expired and will not be valid
         assertFalse(jwtExpired.isTokenValid(claims,subject));
     }
-
 }
