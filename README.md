@@ -15,6 +15,10 @@ Not currently wired into any service; `auth-service` has its own smaller JWT hel
 
 `java-library` plugin only — no Spring Boot, no `bootJar`.
 
+## Testing
+
+- **Unit** — `JwtUtilsTest` (JUnit 5, no Spring; `Clock.fixed`): token generation, expiry detection, subject / roles / expiration extraction, and rejection of malformed tokens and wrong-key signatures.
+
 ## Tech
 
 Java 21 · jjwt 0.13 · JUnit 5 · Gradle
